@@ -173,7 +173,7 @@ function parseFlexPositions(xml) {
       ticker,
       name: pos.description || pos.symbol || '',
       type: isOption ? 'option' : 'stock',
-      qty: Math.abs(quantity),
+      qty: quantity,
       // 期权价格 = 0，需通过一键更新获取底层正股价格
       price: isOption ? 0 : parseFloat(pos.markPrice || pos.costBasisPrice || '0'),
       delta: isOption ? Math.abs(parseFloat(pos.delta || '0.8')) : 1.0,
