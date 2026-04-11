@@ -9,7 +9,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-const IBKR_BASE = 'https://gdcdyn.interactivebrokers.com/Universal/servlet';
+const IBKR_BASE = 'https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // ---- Backend: Yahoo Finance Proxy ----
@@ -60,7 +60,7 @@ async function handleIBKRImport(request) {
 
   try {
     // Step 1: SendRequest — 获取 ReferenceCode
-    const sendUrl = `${IBKR_BASE}/FlexStatement.SendRequest?t=${encodeURIComponent(token)}&q=${encodeURIComponent(queryId)}&v=3`;
+    const sendUrl = `${IBKR_BASE}/SendRequest?t=${encodeURIComponent(token)}&q=${encodeURIComponent(queryId)}&v=3`;
     const sendResp = await fetch(sendUrl, { headers: { 'User-Agent': UA } });
     const sendXml = await sendResp.text();
 
@@ -94,7 +94,7 @@ async function handleIBKRImport(request) {
         await new Promise(r => setTimeout(r, 3000));
       }
 
-      const getUrl = `${IBKR_BASE}/FlexStatement.GetStatement?q=${referenceCode}&t=${encodeURIComponent(token)}&v=3`;
+      const getUrl = `${IBKR_BASE}/GetStatement?q=${referenceCode}&t=${encodeURIComponent(token)}&v=3`;
       const getResp = await fetch(getUrl, { headers: { 'User-Agent': UA } });
       statementXml = await getResp.text();
 
