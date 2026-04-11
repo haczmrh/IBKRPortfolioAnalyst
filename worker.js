@@ -899,7 +899,7 @@ function addRow() {
   const tr = document.createElement('tr');
   tr.id = 'row-' + id;
   tr.className = 'fade-in';
-  tr.innerHTML = \\\`
+  tr.innerHTML = \`
     <td><input class="input-ticker" id="tick-\${id}" placeholder="AAPL" oninput="upd(\${id},'ticker',this.value)"></td>
     <td class="name-cell" id="name-\${id}" title="">—</td>
     <td>
