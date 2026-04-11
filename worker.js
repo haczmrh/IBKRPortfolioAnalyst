@@ -1188,7 +1188,7 @@ function renderChart() {
       if (d.data.portions && d.data.portions.length > 1) {
         breakdown = '<div style="margin-top:4px; font-size:0.7em; opacity:0.8; padding-top:4px; border-top:1px solid rgba(255,255,255,0.1)">';
         d.data.portions.forEach(p => {
-           breakdown += `<div>${p.type === 'option' ? '期权' : '正股'}: ${fmt(p.mv)}</div>`;
+           breakdown += '<div>' + (p.type === 'option' ? '期权' : '正股') + ': ' + fmt(p.mv) + '</div>';
         });
         breakdown += '</div>';
       }
