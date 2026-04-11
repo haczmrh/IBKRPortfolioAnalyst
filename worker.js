@@ -1104,16 +1104,19 @@ function renderChart() {
   const radius = Math.min(svgWidth * 0.22, svgHeight * 0.32);
   const innerRadius = radius * 0.55;
 
-  // 合并同一 Ticker 的正股和期权，并按市值降序排列
+  // 合并同一 Ticker 的正股和期权，并按市值绝对值(等效敞口)降序排列
   const merged = {};
   assets.forEach(a => {
     const mv = calcMktVal(a);
-    if (mv <= 0) return;
+    const absMv = Math.abs(mv);
+    if (absMv <= 0) return;
     const key = a.ticker.trim().toUpperCase() || ('_unnamed_' + a.id);
     if (!merged[key]) {
-      merged[key] = { name: a.name || a.ticker || ('资产' + a.id), value: 0, ticker: key };
+      merged[key] = { name: a.name || a.ticker || ('资产' + a.id), value: 0, realValue: 0, ticker: key, portions: [] };
     }
-    merged[key].value += mv;
+    merged[key].value += absMv;
+    merged[key].realValue += mv;
+    merged[key].portions.push({ type: a.type, mv: mv });
     if (a.name && a.name.length > (merged[key].name || '').length) {
       merged[key].name = a.name;
     }
@@ -1125,6 +1128,8 @@ function renderChart() {
       name: d.name,
       ticker: d.ticker,
       value: d.value,
+      realValue: d.realValue,
+      portions: d.portions,
       color: COLORS[i % COLORS.length],
     }));
 
@@ -1178,9 +1183,21 @@ function renderChart() {
     .on('mouseenter', function(event, d) {
       d3.select(this).transition().duration(150).attr('d', arcHover);
       tooltip.style.opacity = '1';
+
+      let breakdown = '';
+      if (d.data.portions && d.data.portions.length > 1) {
+        breakdown = '<div style="margin-top:4px; font-size:0.7em; opacity:0.8; padding-top:4px; border-top:1px solid rgba(255,255,255,0.1)">';
+        d.data.portions.forEach(p => {
+           breakdown += `<div>${p.type === 'option' ? '期权' : '正股'}: ${fmt(p.mv)}</div>`;
+        });
+        breakdown += '</div>';
+      }
+
       tooltip.innerHTML = \`
         <div class="tip-name" style="color:\${d.data.color}">\${d.data.name}</div>
-        <div class="tip-value">\${fmt(d.data.value)} · \${pct(d.data.value / total)}</div>
+        <div class="tip-value">等效敞口: \${fmt(d.data.value)} · \${pct(d.data.value / total)}</div>
+        <div class="tip-value" style="color:var(--text-primary); margin-top:2px;">实际净价值: \${fmt(d.data.realValue)}</div>
+        \${breakdown}
       \`;
     })
     .on('mousemove', function(event) {
