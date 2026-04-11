@@ -64,39 +64,55 @@ async function handleIBKRImport(request) {
     const sendResp = await fetch(sendUrl, { headers: { 'User-Agent': UA } });
     const sendXml = await sendResp.text();
 
-    // 解析 ReferenceCode
-    const refMatch = sendXml.match(/<ReferenceCode>(\d+)<\/ReferenceCode>/);
+    // 解析 ReferenceCode — 更灵活的匹配
+    const refMatch = sendXml.match(/<ReferenceCode[^>]*>\s*(\w+)\s*<\/ReferenceCode>/i);
     if (!refMatch) {
-      // 检查错误信息
-      const errMatch = sendXml.match(/<ErrorMessage>([^<]+)<\/ErrorMessage>/);
-      const errMsg = errMatch ? errMatch[1] : '无法获取 ReferenceCode';
-      return jsonResp({ error: `IBKR SendRequest 失败: ${errMsg}` }, 502);
+      // 检查 Status 和 ErrorMessage
+      const errMatch = sendXml.match(/<ErrorMessage[^>]*>([^<]+)<\/ErrorMessage>/i);
+      const codeMatch = sendXml.match(/<ErrorCode[^>]*>([^<]+)<\/ErrorCode>/i);
+      const statusMatch = sendXml.match(/<Status[^>]*>([^<]+)<\/Status>/i);
+      let errMsg = '';
+      if (errMatch) errMsg = errMatch[1];
+      else if (statusMatch) errMsg = `Status: ${statusMatch[1]}`;
+      else errMsg = '无法获取 ReferenceCode';
+      // 返回前 500 字符的原始响应用于调试
+      return jsonResp({
+        error: `IBKR SendRequest 失败: ${errMsg}`,
+        debug_response: sendXml.substring(0, 500),
+        debug_code: codeMatch ? codeMatch[1] : null,
+        http_status: sendResp.status,
+      }, 502);
     }
     const referenceCode = refMatch[1];
 
-    // Step 2: GetStatement — 轮询获取结果 (最多 5 次, 每次间隔 2 秒)
+    // Step 2: GetStatement — 轮询获取结果 (最多 8 次, 每次间隔 3 秒)
     let statementXml = '';
     let success = false;
 
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       if (attempt > 0) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 3000));
       }
 
       const getUrl = `${IBKR_BASE}/FlexStatement.GetStatement?q=${referenceCode}&t=${encodeURIComponent(token)}&v=3`;
       const getResp = await fetch(getUrl, { headers: { 'User-Agent': UA } });
       statementXml = await getResp.text();
 
-      // 检查是否仍在生成
-      if (statementXml.includes('<ErrorCode>1019</ErrorCode>') ||
-          statementXml.includes('Statement is being generated')) {
+      // 检查是否仍在生成 (ErrorCode 1019 = still generating)
+      if (statementXml.includes('1019') ||
+          statementXml.toLowerCase().includes('being generated') ||
+          statementXml.toLowerCase().includes('please try again')) {
         continue;
       }
 
-      // 检查错误
-      if (statementXml.includes('<ErrorCode>')) {
-        const errMatch = statementXml.match(/<ErrorMessage>([^<]+)<\/ErrorMessage>/);
-        return jsonResp({ error: `IBKR 错误: ${errMatch ? errMatch[1] : '未知错误'}` }, 502);
+      // 检查其他错误
+      const errCodeMatch = statementXml.match(/<ErrorCode[^>]*>([^<]+)<\/ErrorCode>/i);
+      if (errCodeMatch && errCodeMatch[1] !== '0') {
+        const errMatch = statementXml.match(/<ErrorMessage[^>]*>([^<]+)<\/ErrorMessage>/i);
+        return jsonResp({
+          error: `IBKR 错误: ${errMatch ? errMatch[1] : '错误代码 ' + errCodeMatch[1]}`,
+          debug_response: statementXml.substring(0, 500),
+        }, 502);
       }
 
       success = true;
@@ -104,16 +120,20 @@ async function handleIBKRImport(request) {
     }
 
     if (!success) {
-      return jsonResp({ error: 'IBKR 报告生成超时，请稍后重试' }, 504);
+      return jsonResp({ error: 'IBKR 报告生成超时（24秒），请稍后重试' }, 504);
     }
 
     // Step 3: 解析 OpenPosition 数据
     const positions = parseFlexPositions(statementXml);
 
-    return jsonResp({ positions, raw_length: statementXml.length });
+    return jsonResp({
+      positions,
+      count: positions.length,
+      raw_length: statementXml.length,
+    });
 
   } catch (err) {
-    return jsonResp({ error: `IBKR 请求失败: ${err.message}` }, 500);
+    return jsonResp({ error: `IBKR 请求异常: ${err.message}` }, 500);
   }
 }
 
@@ -779,7 +799,14 @@ async function doIBKRImport() {
     });
     const data = await resp.json();
 
-    if (data.error) throw new Error(data.error);
+    if (data.error) {
+      let msg = data.error;
+      if (data.debug_response) {
+        console.log('IBKR debug response:', data.debug_response);
+        msg += '\\n\\n[调试] 原始响应: ' + data.debug_response.substring(0, 200);
+      }
+      throw new Error(msg);
+    }
     if (!data.positions || data.positions.length === 0) {
       showImportStatus('未找到持仓数据，请检查 Flex Query 配置是否包含 Open Positions', 'error');
       btn.disabled = false;
