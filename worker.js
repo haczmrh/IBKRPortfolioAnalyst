@@ -509,6 +509,27 @@ select { cursor: pointer; }
 .change-pos { color: var(--accent-emerald); }
 .change-neg { color: var(--accent-rose); }
 
+/* ---- Sortable Headers ---- */
+thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-right: 18px;
+  transition: color var(--transition), background var(--transition);
+}
+thead th.sortable:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+thead th.sortable .sort-arrow {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 0.6rem;
+  opacity: 0.3;
+  transition: opacity var(--transition);
+}
+thead th.sortable.active .sort-arrow { opacity: 1; color: var(--accent-indigo-light); }
+
 /* ---- Modal / Overlay ---- */
 .modal-overlay {
   position: fixed;
@@ -624,15 +645,15 @@ select { cursor: pointer; }
       <table id="asset-table">
         <thead>
           <tr>
-            <th>Ticker</th>
+            <th class="sortable" onclick="sortTable('ticker')">Ticker <span class="sort-arrow" id="sort-ticker">▲</span></th>
             <th>名称</th>
-            <th>类型</th>
-            <th>数量</th>
-            <th>价格 ($)</th>
+            <th class="sortable" onclick="sortTable('type')">类型 <span class="sort-arrow" id="sort-type">▲</span></th>
+            <th class="sortable" onclick="sortTable('qty')">数量 <span class="sort-arrow" id="sort-qty">▲</span></th>
+            <th class="sortable" onclick="sortTable('price')">价格 ($) <span class="sort-arrow" id="sort-price">▲</span></th>
             <th>Delta</th>
-            <th>等效市值</th>
+            <th class="sortable" onclick="sortTable('mktval')">等效市值 <span class="sort-arrow" id="sort-mktval">▲</span></th>
             <th>占比</th>
-            <th>今日变动</th>
+            <th class="sortable" onclick="sortTable('change')">今日变动 <span class="sort-arrow" id="sort-change">▲</span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -699,6 +720,7 @@ select { cursor: pointer; }
 // ============ State ============
 let assets = [];
 let rowId = 0;
+let currentSort = { key: null, asc: true };
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -717,6 +739,52 @@ function fmtChange(n) {
 }
 function pct(n) { return (n * 100).toFixed(2) + '%'; }
 function truncate(s, max) { return s.length > max ? s.slice(0, max - 1) + '…' : s; }
+
+// ============ Table Sorting ============
+function sortTable(key) {
+  // Toggle direction
+  if (currentSort.key === key) {
+    currentSort.asc = !currentSort.asc;
+  } else {
+    currentSort.key = key;
+    currentSort.asc = true;
+  }
+
+  // Update header indicators
+  document.querySelectorAll('thead th.sortable').forEach(th => th.classList.remove('active'));
+  document.querySelectorAll('.sort-arrow').forEach(el => { el.textContent = '▲'; });
+  const arrow = document.getElementById('sort-' + key);
+  if (arrow) {
+    arrow.textContent = currentSort.asc ? '▲' : '▼';
+    arrow.closest('th').classList.add('active');
+  }
+
+  // Sort assets array
+  assets.sort((a, b) => {
+    let va, vb;
+    switch (key) {
+      case 'ticker': va = a.ticker.toUpperCase(); vb = b.ticker.toUpperCase(); break;
+      case 'type': va = a.type; vb = b.type; break;
+      case 'qty': va = a.qty; vb = b.qty; break;
+      case 'price': va = a.price; vb = b.price; break;
+      case 'mktval': va = calcMktVal(a); vb = calcMktVal(b); break;
+      case 'change': va = calcDailyChange(a); vb = calcDailyChange(b); break;
+      default: return 0;
+    }
+    if (typeof va === 'string') {
+      const cmp = va.localeCompare(vb);
+      return currentSort.asc ? cmp : -cmp;
+    }
+    return currentSort.asc ? va - vb : vb - va;
+  });
+
+  // Reorder DOM rows
+  const tbody = document.getElementById('asset-body');
+  assets.forEach(a => {
+    const row = document.getElementById('row-' + a.id);
+    if (row) tbody.appendChild(row);
+  });
+}
 
 function save() {
   const data = assets.map(a => ({
