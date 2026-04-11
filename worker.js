@@ -155,31 +155,31 @@ function parseFlexPositions(xml) {
       pos[am[1]] = am[2];
     }
 
-    // 跳过空仓位
-    const quantity = parseFloat(pos.position || pos.quantity || '0');
-    if (quantity === 0) continue;
+    // 解析数量 — 支持负值（空头仓位）
+    const rawQty = pos.position || pos.quantity || pos.openQuantity || '0';
+    const quantity = parseFloat(rawQty);
+    if (isNaN(quantity) || quantity === 0) continue;
 
     const assetCategory = (pos.assetCategory || '').toUpperCase();
     const isOption = assetCategory === 'OPT';
 
+    // 期权使用底层股票代码，价格设为 0（稍后通过 Yahoo Finance 获取正股价格）
+    // 这样 等效市值 = 数量 × 正股价格 × Delta × 100 才有意义
+    const ticker = isOption
+      ? (pos.underlyingSymbol || pos.symbol || '')
+      : (pos.symbol || '');
+
     positions.push({
-      ticker: pos.symbol || pos.underlyingSymbol || '',
+      ticker,
       name: pos.description || pos.symbol || '',
       type: isOption ? 'option' : 'stock',
       qty: Math.abs(quantity),
-      price: parseFloat(pos.markPrice || pos.costBasisPrice || '0'),
-      delta: isOption ? parseFloat(pos.delta || '0.8') : 1.0,
-      previousClose: parseFloat(pos.closePrice || pos.priorClose || '0'),
-      positionValue: parseFloat(pos.positionValue || pos.marketValue || '0'),
+      // 期权价格 = 0，需通过一键更新获取底层正股价格
+      price: isOption ? 0 : parseFloat(pos.markPrice || pos.costBasisPrice || '0'),
+      delta: isOption ? Math.abs(parseFloat(pos.delta || '0.8')) : 1.0,
+      previousClose: isOption ? 0 : parseFloat(pos.closePrice || pos.priorClose || '0'),
       currency: pos.currency || 'USD',
-      // 期权额外信息
-      ...(isOption && {
-        strike: parseFloat(pos.strike || '0'),
-        expiry: pos.expiry || '',
-        putCall: pos.putCall || '',
-        multiplier: parseFloat(pos.multiplier || '100'),
-        underlyingSymbol: pos.underlyingSymbol || pos.symbol || '',
-      }),
+      isShort: quantity < 0,
     });
   }
 
@@ -834,10 +834,13 @@ async function doIBKRImport() {
     recalc();
     save();
 
-    showImportStatus('✓ 成功导入 ' + data.positions.length + ' 条持仓记录', 'success');
+    showImportStatus('✓ 成功导入 ' + data.positions.length + ' 条持仓记录，正在更新实时价格...', 'success');
 
-    // 2 秒后关闭弹窗
-    setTimeout(() => closeImportModal(), 2000);
+    // 关闭弹窗并自动获取全部实时价格（特别是期权的底层正股价格）
+    setTimeout(async () => {
+      closeImportModal();
+      await fetchAllPrices();
+    }, 1500);
 
   } catch (e) {
     showImportStatus('导入失败: ' + e.message, 'error');
