@@ -670,8 +670,8 @@ select { cursor: pointer; }
     </div>
     <div id="chart-container">
       <svg id="donut-chart"></svg>
+      <div class="chart-tooltip" id="tooltip"></div>
     </div>
-    <div class="chart-tooltip" id="tooltip"></div>
   </section>
 </div>
 
@@ -1201,7 +1201,7 @@ function renderChart() {
       \`;
     })
     .on('mousemove', function(event) {
-      const rect = document.getElementById('chart-card').getBoundingClientRect();
+      const rect = document.getElementById('chart-container').getBoundingClientRect();
       tooltip.style.left = (event.clientX - rect.left + 12) + 'px';
       tooltip.style.top = (event.clientY - rect.top - 10) + 'px';
     })
