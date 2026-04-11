@@ -509,27 +509,6 @@ select { cursor: pointer; }
 .change-pos { color: var(--accent-emerald); }
 .change-neg { color: var(--accent-rose); }
 
-/* ---- Sortable Headers ---- */
-thead th.sortable {
-  cursor: pointer;
-  user-select: none;
-  position: relative;
-  padding-right: 18px;
-  transition: color var(--transition), background var(--transition);
-}
-thead th.sortable:hover {
-  color: var(--text-primary);
-  background: var(--bg-card-hover);
-}
-thead th.sortable .sort-arrow {
-  display: inline-block;
-  margin-left: 3px;
-  font-size: 0.6rem;
-  opacity: 0.3;
-  transition: opacity var(--transition);
-}
-thead th.sortable.active .sort-arrow { opacity: 1; color: var(--accent-indigo-light); }
-
 /* ---- Modal / Overlay ---- */
 .modal-overlay {
   position: fixed;
@@ -645,15 +624,15 @@ thead th.sortable.active .sort-arrow { opacity: 1; color: var(--accent-indigo-li
       <table id="asset-table">
         <thead>
           <tr>
-            <th class="sortable" onclick="sortTable('ticker')">Ticker <span class="sort-arrow" id="sort-ticker">▲</span></th>
+            <th onclick="toggleSort('ticker')" style="cursor:pointer; user-select:none;">Ticker <span id="sort-ind-ticker"></span></th>
             <th>名称</th>
-            <th class="sortable" onclick="sortTable('type')">类型 <span class="sort-arrow" id="sort-type">▲</span></th>
-            <th class="sortable" onclick="sortTable('qty')">数量 <span class="sort-arrow" id="sort-qty">▲</span></th>
-            <th class="sortable" onclick="sortTable('price')">价格 ($) <span class="sort-arrow" id="sort-price">▲</span></th>
+            <th>类型</th>
+            <th>数量</th>
+            <th>价格 ($)</th>
             <th>Delta</th>
-            <th class="sortable" onclick="sortTable('mktval')">等效市值 <span class="sort-arrow" id="sort-mktval">▲</span></th>
+            <th>等效市值</th>
             <th>占比</th>
-            <th class="sortable" onclick="sortTable('change')">今日变动 <span class="sort-arrow" id="sort-change">▲</span></th>
+            <th>今日变动</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -720,7 +699,7 @@ thead th.sortable.active .sort-arrow { opacity: 1; color: var(--accent-indigo-li
 // ============ State ============
 let assets = [];
 let rowId = 0;
-let currentSort = { key: null, asc: true };
+let sortDir = 0; // 0: none, 1: asc, -1: desc
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -739,52 +718,6 @@ function fmtChange(n) {
 }
 function pct(n) { return (n * 100).toFixed(2) + '%'; }
 function truncate(s, max) { return s.length > max ? s.slice(0, max - 1) + '…' : s; }
-
-// ============ Table Sorting ============
-function sortTable(key) {
-  // Toggle direction
-  if (currentSort.key === key) {
-    currentSort.asc = !currentSort.asc;
-  } else {
-    currentSort.key = key;
-    currentSort.asc = true;
-  }
-
-  // Update header indicators
-  document.querySelectorAll('thead th.sortable').forEach(th => th.classList.remove('active'));
-  document.querySelectorAll('.sort-arrow').forEach(el => { el.textContent = '▲'; });
-  const arrow = document.getElementById('sort-' + key);
-  if (arrow) {
-    arrow.textContent = currentSort.asc ? '▲' : '▼';
-    arrow.closest('th').classList.add('active');
-  }
-
-  // Sort assets array
-  assets.sort((a, b) => {
-    let va, vb;
-    switch (key) {
-      case 'ticker': va = a.ticker.toUpperCase(); vb = b.ticker.toUpperCase(); break;
-      case 'type': va = a.type; vb = b.type; break;
-      case 'qty': va = a.qty; vb = b.qty; break;
-      case 'price': va = a.price; vb = b.price; break;
-      case 'mktval': va = calcMktVal(a); vb = calcMktVal(b); break;
-      case 'change': va = calcDailyChange(a); vb = calcDailyChange(b); break;
-      default: return 0;
-    }
-    if (typeof va === 'string') {
-      const cmp = va.localeCompare(vb);
-      return currentSort.asc ? cmp : -cmp;
-    }
-    return currentSort.asc ? va - vb : vb - va;
-  });
-
-  // Reorder DOM rows
-  const tbody = document.getElementById('asset-body');
-  assets.forEach(a => {
-    const row = document.getElementById('row-' + a.id);
-    if (row) tbody.appendChild(row);
-  });
-}
 
 function save() {
   const data = assets.map(a => ({
@@ -814,6 +747,30 @@ function load() {
     });
     recalc();
   } catch(e) { console.error('Load failed', e); }
+}
+
+// ============ Sort & Reorder ============
+function toggleSort(col) {
+  if (col === 'ticker') {
+    sortDir = sortDir === 1 ? -1 : 1;
+    document.getElementById('sort-ind-ticker').textContent = sortDir === 1 ? '▲' : '▼';
+    
+    // Sort the assets array
+    assets.sort((a, b) => {
+      const ta = a.ticker.trim().toUpperCase();
+      const tb = b.ticker.trim().toUpperCase();
+      if (ta < tb) return -1 * sortDir;
+      if (ta > tb) return 1 * sortDir;
+      return 0;
+    });
+    
+    // Reorder DOM rows
+    const tbody = document.getElementById('asset-body');
+    assets.forEach(a => {
+      const tr = document.getElementById('row-' + a.id);
+      if (tr) tbody.appendChild(tr); // Moving existing element to the end
+    });
+  }
 }
 
 // ============ IBKR Import Modal ============
@@ -882,6 +839,12 @@ async function doIBKRImport() {
       return;
     }
 
+    // 保存用户现有的自定义 Delta
+    const userDeltas = {};
+    assets.forEach(a => {
+      if (a.type === 'option') userDeltas[a.ticker] = a.delta;
+    });
+
     // 清空现有数据并导入
     assets = [];
     document.getElementById('asset-body').innerHTML = '';
@@ -894,7 +857,9 @@ async function doIBKRImport() {
       a.type = p.type || 'stock';
       a.qty = p.qty || 0;
       a.price = p.price || 0;
-      a.delta = p.delta ?? 1.0;
+      a.delta = p.type === 'option' && userDeltas[p.ticker] !== undefined 
+                  ? userDeltas[p.ticker] 
+                  : (p.delta ?? 1.0);
       a.previousClose = p.previousClose || 0;
       syncRowToDOM(a);
     });
@@ -934,7 +899,7 @@ function addRow() {
   const tr = document.createElement('tr');
   tr.id = 'row-' + id;
   tr.className = 'fade-in';
-  tr.innerHTML = \`
+  tr.innerHTML = `
     <td><input class="input-ticker" id="tick-\${id}" placeholder="AAPL" oninput="upd(\${id},'ticker',this.value)"></td>
     <td class="name-cell" id="name-\${id}" title="">—</td>
     <td>
@@ -943,12 +908,12 @@ function addRow() {
         <option value="option">期权LEAPS</option>
       </select>
     </td>
-    <td><input type="number" class="input-narrow" id="qty-\${id}" value="0" min="0" oninput="upd(\${id},'qty',+this.value)"></td>
+    <td><input type="number" class="input-narrow" id="qty-\${id}" value="0" min="0" onchange="upd(\${id},'qty',+this.value)"></td>
     <td style="position:relative;">
-      <input type="number" class="input-narrow" id="price-\${id}" value="0" step="0.01" min="0" oninput="upd(\${id},'price',+this.value)">
+      <input type="number" class="input-narrow" id="price-\${id}" value="0" step="0.01" min="0" onchange="upd(\${id},'price',+this.value)">
       <span class="price-badge" id="badge-\${id}" style="display:none;position:absolute;top:-8px;right:-6px;"></span>
     </td>
-    <td><input type="number" class="input-narrow" id="delta-\${id}" value="1.0" step="0.01" min="0" max="1" disabled oninput="upd(\${id},'delta',+this.value)"></td>
+    <td><input type="number" class="input-narrow" id="delta-\${id}" value="1.0" step="0.01" min="0" max="1" disabled onchange="upd(\${id},'delta',+this.value)"></td>
     <td class="pct-cell" id="mktval-\${id}" style="white-space:nowrap;">$0.00</td>
     <td class="pct-cell" id="pct-\${id}">0.00%</td>
     <td class="pct-cell" id="chg-\${id}" style="white-space:nowrap;">—</td>
