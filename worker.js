@@ -169,15 +169,20 @@ function parseFlexPositions(xml) {
       ? (pos.underlyingSymbol || pos.symbol || '')
       : (pos.symbol || '');
 
+    const safeNumber = (value, fallback = 0) => {
+      const n = parseFloat(value);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
     positions.push({
       ticker,
       name: pos.description || pos.symbol || '',
       type: isOption ? 'option' : 'stock',
       qty: quantity,
       // 期权价格 = 0，需通过一键更新获取底层正股价格
-      price: isOption ? 0 : parseFloat(pos.markPrice || pos.costBasisPrice || '0'),
-      delta: isOption ? Math.abs(parseFloat(pos.delta || '0.8')) : 1.0,
-      previousClose: isOption ? 0 : parseFloat(pos.closePrice || pos.priorClose || '0'),
+      price: isOption ? 0 : safeNumber(pos.markPrice || pos.costBasisPrice || '0'),
+      delta: isOption ? Math.abs(safeNumber(pos.delta, 0.8)) : 1.0,
+      previousClose: isOption ? 0 : safeNumber(pos.closePrice || pos.priorClose || '0'),
       currency: pos.currency || 'USD',
       isShort: quantity < 0,
     });
@@ -1012,7 +1017,7 @@ function recalc() {
     if (el_mv) el_mv.textContent = fmt(mv);
     if (el_pct) el_pct.textContent = total > 0 ? pct(mv / total) : '0.00%';
     if (el_chg) {
-      if (a.previousClose && a.previousClose > 0 && a.qty > 0) {
+      if (a.previousClose && a.previousClose > 0 && a.qty !== 0) {
         el_chg.textContent = fmtChange(dc);
         el_chg.className = 'pct-cell ' + (dc >= 0 ? 'change-pos' : 'change-neg');
       } else {
@@ -1026,7 +1031,7 @@ function recalc() {
   document.getElementById('total-count').textContent = assets.length;
 
   const elDC = document.getElementById('total-daily-change');
-  const hasPrevClose = assets.some(a => a.previousClose > 0 && a.qty > 0);
+  const hasPrevClose = assets.some(a => a.previousClose > 0 && a.qty !== 0);
   if (hasPrevClose) {
     elDC.textContent = fmtChange(totalDailyChange);
     elDC.className = 'stat-value ' + (totalDailyChange >= 0 ? 'change-pos' : 'change-neg');
@@ -1053,8 +1058,10 @@ async function fetchPrice(id) {
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
 
-    a.price = data.price;
-    a.previousClose = data.previousClose || 0;
+    const nextPrice = Number(data.price);
+    const nextPreviousClose = Number(data.previousClose);
+    a.price = Number.isFinite(nextPrice) ? nextPrice : 0;
+    a.previousClose = Number.isFinite(nextPreviousClose) ? nextPreviousClose : 0;
     if (data.shortName) {
       a.name = data.shortName;
       const nameEl = document.getElementById('name-' + id);
@@ -1063,7 +1070,7 @@ async function fetchPrice(id) {
         nameEl.title = data.shortName;
       }
     }
-    document.getElementById('price-' + id).value = data.price;
+    document.getElementById('price-' + id).value = a.price;
     badge.className = 'price-badge success';
     badge.textContent = '✓';
     recalc();
