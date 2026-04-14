@@ -698,12 +698,12 @@ select { cursor: pointer; }
         <div class="stat-value" id="total-daily-change">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">持仓数量</div>
-        <div class="stat-value" id="total-count">0</div>
+        <div class="stat-label">上一收盘日净资产 (USD)</div>
+        <div class="stat-value" id="prev-close-nav-usd" style="font-size:1.05rem;">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">数据更新</div>
-        <div class="stat-value" id="last-update" style="font-size:0.85rem;">—</div>
+        <div class="stat-label">上一收盘日净资产 (CNY)</div>
+        <div class="stat-value" id="prev-close-nav-cny" style="font-size:1.05rem;">—</div>
       </div>
     </div>
   </section>
@@ -750,6 +750,7 @@ let assets = [];
 let rowId = 0;
 let sortCol = '';
 let sortDir = 1; // 1: asc, -1: desc
+let usdCnyPreviousClose = null;
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -761,6 +762,9 @@ const COLORS = [
 // ============ Helpers ============
 function fmt(n) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+}
+function fmtCny(n) {
+  return n.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 2 });
 }
 function fmtChange(n) {
   const sign = n >= 0 ? '+' : '';
@@ -1089,15 +1093,29 @@ function calcDailyChange(a) {
   return (a.price - a.previousClose) * a.delta * a.qty * multiplier;
 }
 
+function calcPrevCloseNav(a) {
+  if (Number.isFinite(a.importedDailyChange)) return calcMktVal(a) - a.importedDailyChange;
+  if (!a.previousClose || a.previousClose === 0) return null;
+  const multiplier = a.type === 'option' ? 100 : (Number(a.multiplier) || 1);
+  return a.qty * a.previousClose * a.delta * multiplier;
+}
+
 function recalc() {
   let total = 0;
   let totalDailyChange = 0;
+  let prevCloseNav = 0;
+  let hasPrevCloseNav = assets.length > 0;
   assets.forEach(a => { total += calcMktVal(a); });
 
   assets.forEach(a => {
     const mv = calcMktVal(a);
     const dc = calcDailyChange(a);
+    const prevNav = calcPrevCloseNav(a);
     totalDailyChange += dc;
+    if (a.qty !== 0) {
+      if (prevNav === null) hasPrevCloseNav = false;
+      else prevCloseNav += prevNav;
+    }
 
     const el_mv = document.getElementById('mktval-' + a.id);
     const el_pct = document.getElementById('pct-' + a.id);
@@ -1116,7 +1134,6 @@ function recalc() {
   });
 
   document.getElementById('total-value').textContent = fmt(total);
-  document.getElementById('total-count').textContent = assets.length;
 
   const elDC = document.getElementById('total-daily-change');
   const hasPrevClose = assets.some(a => (Number.isFinite(a.importedDailyChange) || a.previousClose > 0) && a.qty !== 0);
@@ -1128,8 +1145,34 @@ function recalc() {
     elDC.className = 'stat-value';
   }
 
+  const elPrevUsd = document.getElementById('prev-close-nav-usd');
+  const elPrevCny = document.getElementById('prev-close-nav-cny');
+  if (hasPrevCloseNav && assets.some(a => a.qty !== 0)) {
+    elPrevUsd.textContent = fmt(prevCloseNav);
+    elPrevCny.textContent = Number.isFinite(usdCnyPreviousClose)
+      ? fmtCny(prevCloseNav * usdCnyPreviousClose)
+      : '—';
+  } else {
+    elPrevUsd.textContent = '—';
+    elPrevCny.textContent = '—';
+  }
+
   applySort();
   renderChart();
+}
+
+async function refreshUsdCnyPreviousClose() {
+  try {
+    const resp = await fetch('/api/quote?ticker=' + encodeURIComponent('USDCNY=X'));
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    const rate = Number(data.previousClose ?? data.price);
+    usdCnyPreviousClose = Number.isFinite(rate) ? rate : null;
+  } catch (e) {
+    usdCnyPreviousClose = null;
+    console.error('Fetch USDCNY previous close error:', e);
+  }
+  recalc();
 }
 
 // ============ Price Fetching ============
@@ -1182,11 +1225,8 @@ async function fetchAllPrices() {
   const promises = assets
     .filter(a => a.ticker.trim())
     .map(a => fetchPrice(a.id));
+  promises.push(refreshUsdCnyPreviousClose());
   await Promise.allSettled(promises);
-
-  const now = new Date();
-  document.getElementById('last-update').textContent =
-    now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   btn.disabled = false;
   btn.textContent = '🔄 一键更新全部价格';
@@ -1465,6 +1505,7 @@ async function exportImage() {
 // ============ Init ============
 load();
 if (assets.length === 0) { addRow(); }
+refreshUsdCnyPreviousClose();
 window.addEventListener('resize', () => renderChart());
 // 点击 modal 外部关闭
 document.getElementById('ibkr-modal').addEventListener('click', function(e) {
