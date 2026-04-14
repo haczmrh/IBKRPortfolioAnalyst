@@ -125,9 +125,11 @@ async function handleIBKRImport(request) {
 
     // Step 3: 解析 OpenPosition 数据
     const positions = parseFlexPositions(statementXml);
+    const reportSummary = parseFlexReportSummary(statementXml);
 
     return jsonResp({
       positions,
+      reportSummary,
       count: positions.length,
       raw_length: statementXml.length,
     });
@@ -137,13 +139,68 @@ async function handleIBKRImport(request) {
   }
 }
 
+function parseXmlAttrs(attrText) {
+  const attrs = {};
+  const attrRegex = /(\w+)="([^"]*)"/g;
+  let match;
+  while ((match = attrRegex.exec(attrText)) !== null) {
+    attrs[match[1]] = match[2];
+  }
+  return attrs;
+}
+
+function safeNumber(value, fallback = 0) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseFlexReportSummary(xml) {
+  const candidates = [];
+  const tagPatterns = [
+    { tag: 'EquitySummaryByReportDateInBase', score: 100 },
+    { tag: 'EquitySummaryInBase', score: 90 },
+    { tag: 'NetAssetValue', score: 80 },
+    { tag: 'ChangeInNAV', score: 70 },
+  ];
+
+  tagPatterns.forEach(({ tag, score }) => {
+    const regex = new RegExp(`<${tag}\\s+([^>]+?)(?:\\/?>|>[\\s\\S]*?<\\/${tag}>)`, 'gi');
+    let match;
+    while ((match = regex.exec(xml)) !== null) {
+      const attrs = parseXmlAttrs(match[1] || '');
+      const dateRaw = attrs.reportDate || attrs.date || attrs.asOfDate || attrs.toDate || '';
+      const numericKeys = [
+        'total', 'netLiquidation', 'netLiquidationValue', 'netLiq',
+        'endingValue', 'value', 'nav', 'amount'
+      ];
+      for (const key of numericKeys) {
+        const value = safeNumber(attrs[key], NaN);
+        if (Number.isFinite(value)) {
+          candidates.push({ value, dateRaw, score, key });
+          break;
+        }
+      }
+    }
+  });
+
+  if (candidates.length === 0) return { previousCloseNavUsd: null };
+
+  candidates.sort((a, b) => {
+    const dateCmp = String(b.dateRaw).localeCompare(String(a.dateRaw));
+    if (dateCmp !== 0) return dateCmp;
+    return b.score - a.score;
+  });
+
+  return {
+    previousCloseNavUsd: candidates[0].value,
+    sourceTagMetric: candidates[0].key,
+    reportDate: candidates[0].dateRaw || null,
+  };
+}
+
 // 解析 Flex Query XML 中的 OpenPosition 节点
 function parseFlexPositions(xml) {
   const positions = [];
-  const safeNumber = (value, fallback = 0) => {
-    const n = parseFloat(value);
-    return Number.isFinite(n) ? n : fallback;
-  };
   const inferFutureMultiplier = (symbol) => {
     const s = (symbol || '').toUpperCase();
     if (s.startsWith('MNQ')) return 2;
@@ -751,6 +808,7 @@ let rowId = 0;
 let sortCol = '';
 let sortDir = 1; // 1: asc, -1: desc
 let usdCnyPreviousClose = null;
+let reportPreviousCloseNavUsd = null;
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -781,6 +839,9 @@ function save() {
     importedDailyChange: a.importedDailyChange,
   }));
   localStorage.setItem('ibkr_portfolio_v1', JSON.stringify(data));
+  localStorage.setItem('ibkr_portfolio_meta_v1', JSON.stringify({
+    reportPreviousCloseNavUsd,
+  }));
 }
 
 function load() {
@@ -788,6 +849,13 @@ function load() {
     const raw = localStorage.getItem('ibkr_portfolio_v1');
     if (!raw) return;
     const data = JSON.parse(raw);
+    const rawMeta = localStorage.getItem('ibkr_portfolio_meta_v1');
+    if (rawMeta) {
+      const meta = JSON.parse(rawMeta);
+      reportPreviousCloseNavUsd = Number.isFinite(meta.reportPreviousCloseNavUsd)
+        ? meta.reportPreviousCloseNavUsd
+        : null;
+    }
     data.forEach(d => {
       addRow();
       const a = assets[assets.length - 1];
@@ -954,6 +1022,10 @@ async function doIBKRImport() {
       syncRowToDOM(a);
     });
 
+    reportPreviousCloseNavUsd = Number.isFinite(data?.reportSummary?.previousCloseNavUsd)
+      ? data.reportSummary.previousCloseNavUsd
+      : null;
+
     recalc();
     save();
 
@@ -1034,6 +1106,7 @@ function removeRow(id) {
 function clearAll() {
   if (!confirm('确定要清空所有持仓数据吗？')) return;
   assets = [];
+  reportPreviousCloseNavUsd = null;
   document.getElementById('asset-body').innerHTML = '';
   recalc();
   save();
@@ -1147,10 +1220,13 @@ function recalc() {
 
   const elPrevUsd = document.getElementById('prev-close-nav-usd');
   const elPrevCny = document.getElementById('prev-close-nav-cny');
-  if (hasPrevCloseNav && assets.some(a => a.qty !== 0)) {
-    elPrevUsd.textContent = fmt(prevCloseNav);
+  const effectivePrevCloseNavUsd = Number.isFinite(reportPreviousCloseNavUsd)
+    ? reportPreviousCloseNavUsd
+    : ((hasPrevCloseNav && assets.some(a => a.qty !== 0)) ? prevCloseNav : null);
+  if (Number.isFinite(effectivePrevCloseNavUsd)) {
+    elPrevUsd.textContent = fmt(effectivePrevCloseNavUsd);
     elPrevCny.textContent = Number.isFinite(usdCnyPreviousClose)
-      ? fmtCny(prevCloseNav * usdCnyPreviousClose)
+      ? fmtCny(effectivePrevCloseNavUsd * usdCnyPreviousClose)
       : '—';
   } else {
     elPrevUsd.textContent = '—';
