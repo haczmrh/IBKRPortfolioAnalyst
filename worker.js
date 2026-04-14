@@ -422,7 +422,7 @@ body {
 
 /* ---- Layout ---- */
 .app-container {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 40px 20px 80px;
 }
@@ -585,7 +585,7 @@ thead th {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  padding: 12px 14px;
+  padding: 10px 8px;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
   position: sticky;
@@ -593,7 +593,7 @@ thead th {
   z-index: 10;
 }
 tbody td {
-  padding: 10px 14px;
+  padding: 8px 8px;
   border-bottom: 1px solid rgba(255,255,255,0.04);
   vertical-align: middle;
 }
@@ -609,7 +609,7 @@ input, select {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: 8px 8px;
   transition: all var(--transition);
   width: 100%;
 }
@@ -624,14 +624,15 @@ input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button { -webkit-appearance: none; }
 select { cursor: pointer; }
 
-.input-narrow { max-width: 140px; min-width: 80px; }
-.input-ticker { max-width: 130px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;}
+.input-narrow { max-width: 100px; min-width: 60px; }
+.input-price { max-width: 110px; min-width: 80px; }
+.input-ticker { max-width: 100px; min-width: 70px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;}
 
 /* ---- Name cell ---- */
 .name-cell {
   font-size: 0.8rem;
   color: var(--text-secondary);
-  max-width: 160px;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1209,7 +1210,7 @@ function addRow() {
     <td><input class="input-ticker" id="tick-\${id}" placeholder="AAPL" oninput="upd(\${id},'ticker',this.value)"></td>
     <td class="name-cell" id="name-\${id}" title="">—</td>
     <td>
-      <select id="type-\${id}" onchange="upd(\${id},'type',this.value); toggleDelta(\${id})">
+      <select id="type-\${id}" style="min-width: 80px; padding: 8px 4px;" onchange="upd(\${id},'type',this.value); toggleDelta(\${id})">
         <option value="stock">正股</option>
         <option value="option">期权LEAPS</option>
         <option value="future">期货</option>
@@ -1217,7 +1218,7 @@ function addRow() {
     </td>
     <td><input type="number" class="input-narrow" id="qty-\${id}" value="0" min="0" onchange="upd(\${id},'qty',+this.value)"></td>
     <td style="position:relative;">
-      <input type="number" class="input-narrow" id="price-\${id}" value="0" step="0.01" min="0" onchange="upd(\${id},'price',+this.value)">
+      <input type="number" class="input-price" id="price-\${id}" value="0" step="0.01" min="0" onchange="upd(\${id},'price',+this.value)">
       <span class="price-badge" id="badge-\${id}" style="display:none;position:absolute;top:-8px;right:-6px;"></span>
     </td>
     <td><input type="number" class="input-narrow" id="delta-\${id}" value="1.0" step="0.01" min="-1" max="1" disabled onchange="upd(\${id},'delta',+this.value)"></td>
