@@ -144,6 +144,11 @@ function parseFlexPositions(xml) {
     const n = parseFloat(value);
     return Number.isFinite(n) ? n : fallback;
   };
+  const inferFutureMultiplier = (symbol) => {
+    const s = (symbol || '').toUpperCase();
+    if (s.startsWith('MNQ')) return 2;
+    return 1;
+  };
   // 匹配所有 OpenPosition 自闭合标签或开闭标签
   const regex = /<OpenPosition\s+([^>]+)\/?>|<OpenPosition\s+([^>]+)>[\s\S]*?<\/OpenPosition>/g;
   let match;
@@ -173,9 +178,16 @@ function parseFlexPositions(xml) {
     const ticker = isOption
       ? (pos.underlyingSymbol || pos.symbol || '')
       : (pos.symbol || '');
+    const futureMultiplier = safeNumber(
+      pos.multiplier ||
+      pos.contractMultiplier ||
+      pos.priceMultiplier ||
+      pos.contractFactor,
+      inferFutureMultiplier(pos.symbol)
+    );
     const multiplier = isOption
       ? 100
-      : (isFuture ? 1 : safeNumber(
+      : (isFuture ? futureMultiplier : safeNumber(
           pos.multiplier ||
           pos.contractMultiplier ||
           pos.priceMultiplier ||
@@ -1040,7 +1052,7 @@ function toggleDelta(id) {
   } else {
     el.disabled = true;
     a.delta = 1.0;
-    a.multiplier = 1;
+    a.multiplier = a.type === 'future' ? (a.multiplier || 1) : 1;
     el.value = '1.0';
   }
   recalc();
