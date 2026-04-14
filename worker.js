@@ -1366,7 +1366,7 @@ function recalc() {
   if (Number.isFinite(reportPreviousDayChangeUsd)) {
     const usdStr = fmtChange(reportPreviousDayChangeUsd);
     const cnyStr = Number.isFinite(usdCnyPreviousClose) ? fmtCny(reportPreviousDayChangeUsd * usdCnyPreviousClose) : '—';
-    elPrevChange.innerHTML = `<div>${usdStr}</div><div style="font-size:0.85rem; font-weight:500; opacity:0.8; margin-top:2px;">(${cnyStr})</div>`;
+    elPrevChange.innerHTML = `<div>\${usdStr}</div><div style="font-size:0.85rem; font-weight:500; opacity:0.8; margin-top:2px;">(\${cnyStr})</div>`;
     elPrevChange.className = 'stat-value ' + (reportPreviousDayChangeUsd >= 0 ? 'change-pos' : 'change-neg');
   } else {
     elPrevChange.textContent = '—';
@@ -1380,7 +1380,7 @@ function recalc() {
   if (Number.isFinite(effectivePrevCloseNavUsd)) {
     const usdStr = fmt(effectivePrevCloseNavUsd);
     const cnyStr = Number.isFinite(usdCnyPreviousClose) ? fmtCny(effectivePrevCloseNavUsd * usdCnyPreviousClose) : '—';
-    elPrevNav.innerHTML = `<div>${usdStr}</div><div style="font-size:0.85rem; font-weight:500; opacity:0.8; margin-top:2px; color:var(--text-secondary);">(${cnyStr})</div>`;
+    elPrevNav.innerHTML = `<div>\${usdStr}</div><div style="font-size:0.85rem; font-weight:500; opacity:0.8; margin-top:2px; color:var(--text-secondary);">(\${cnyStr})</div>`;
   } else {
     elPrevNav.textContent = '—';
   }
