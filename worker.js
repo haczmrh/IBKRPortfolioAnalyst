@@ -181,7 +181,7 @@ function parseFlexPositions(xml) {
       qty: quantity,
       // 期权价格 = 0，需通过一键更新获取底层正股价格
       price: isOption ? 0 : safeNumber(pos.markPrice || pos.costBasisPrice || '0'),
-      delta: isOption ? Math.abs(safeNumber(pos.delta, 0.8)) : 1.0,
+      delta: isOption ? safeNumber(pos.delta, 0.8) : 1.0,
       previousClose: isOption ? 0 : safeNumber(pos.closePrice || pos.priorClose || '0'),
       currency: pos.currency || 'USD',
       isShort: quantity < 0,
@@ -950,7 +950,7 @@ function addRow() {
       <input type="number" class="input-narrow" id="price-\${id}" value="0" step="0.01" min="0" onchange="upd(\${id},'price',+this.value)">
       <span class="price-badge" id="badge-\${id}" style="display:none;position:absolute;top:-8px;right:-6px;"></span>
     </td>
-    <td><input type="number" class="input-narrow" id="delta-\${id}" value="1.0" step="0.01" min="0" max="1" disabled onchange="upd(\${id},'delta',+this.value)"></td>
+    <td><input type="number" class="input-narrow" id="delta-\${id}" value="1.0" step="0.01" min="-1" max="1" disabled onchange="upd(\${id},'delta',+this.value)"></td>
     <td class="pct-cell" id="mktval-\${id}" style="white-space:nowrap;">$0.00</td>
     <td class="pct-cell" id="pct-\${id}">0.00%</td>
     <td class="pct-cell" id="chg-\${id}" style="white-space:nowrap;">—</td>
