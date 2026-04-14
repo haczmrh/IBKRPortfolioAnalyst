@@ -211,36 +211,6 @@ function parseFlexReportSummary(xml) {
   }
 
   if (candidates.length === 0) {
-    // 降级方案：如果报告没有专门配置总结区域（如 EquitySummaryInBase），
-    // 我们可以直接累加所有 MTMPerformanceSummaryUnderlying 里面的前日数据
-    let fallbackNav = 0;
-    let foundMtm = false;
-    const mtmRegex = /<(?:MTMPerformanceSummaryUnderlying|ChangeInNAVUnderlying)\s+([^>]+)\/?>/g;
-    let mtmMatch;
-    
-    while ((mtmMatch = mtmRegex.exec(xml)) !== null) {
-      const attrs = parseXmlAttrs(mtmMatch[1] || '');
-      // 跳过纯描述性的汇总节点 (例如 description="Total P/L" 但不含价格的)
-      if (attrs.description === 'Total P/L' && !attrs.prevClosePrice) continue;
-      
-      const pQty = parseFloat(attrs.prevCloseQuantity || '0');
-      const pPrice = parseFloat(attrs.prevClosePrice || '0');
-      const mult = parseFloat(attrs.multiplier || '1') || 1;
-      
-      if (!isNaN(pQty) && !isNaN(pPrice)) {
-         foundMtm = true;
-         fallbackNav += (pQty * pPrice * mult);
-      }
-    }
-    
-    if (foundMtm) {
-      return { 
-        previousCloseNavUsd: fallbackNav, 
-        previousDayChangeUsd: fallbackChange, 
-        sourceTagMetric: 'Calculated_MTM_Prev_Close', 
-        reportDate: null 
-      };
-    }
     return { previousCloseNavUsd: null, previousDayChangeUsd: fallbackChange };
   }
 
