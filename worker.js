@@ -175,20 +175,23 @@ function parseFlexPositions(xml) {
       : (pos.symbol || '');
     const multiplier = isOption
       ? 100
-      : safeNumber(
+      : (isFuture ? 1 : safeNumber(
           pos.multiplier ||
           pos.contractMultiplier ||
           pos.priceMultiplier ||
           pos.contractFactor ||
           '1',
           1
-        );
+        ));
     const importedDailyChange = safeNumber(
       pos.mtmPnl ||
       pos.mtmPNL ||
+      pos.mtmPL ||
+      pos.dailyPnl ||
       pos.dailyPnL ||
       pos.dailyPNL ||
-      pos.dailyProfitAndLoss,
+      pos.dailyProfitAndLoss ||
+      pos.pnl,
       NaN
     );
 
@@ -200,7 +203,16 @@ function parseFlexPositions(xml) {
       // 期权价格 = 0，需通过一键更新获取底层正股价格
       price: isOption ? 0 : safeNumber(pos.markPrice || pos.costBasisPrice || '0'),
       delta: isOption ? safeNumber(pos.delta, 0.8) : 1.0,
-      previousClose: isOption ? 0 : safeNumber(pos.closePrice || pos.priorClose || pos.close || pos.settlePrice || pos.priorSettlePrice || '0'),
+      previousClose: isOption ? 0 : safeNumber(
+        pos.closePrice ||
+        pos.priorClose ||
+        pos.close ||
+        pos.settlePrice ||
+        pos.settlementPrice ||
+        pos.priorSettlePrice ||
+        pos.priorSettlementPrice ||
+        '0'
+      ),
       multiplier,
       importedDailyChange: Number.isFinite(importedDailyChange) ? importedDailyChange : null,
       currency: pos.currency || 'USD',
@@ -1028,7 +1040,7 @@ function toggleDelta(id) {
   } else {
     el.disabled = true;
     a.delta = 1.0;
-    a.multiplier = a.type === 'future' ? (a.multiplier || 1) : 1;
+    a.multiplier = 1;
     el.value = '1.0';
   }
   recalc();
