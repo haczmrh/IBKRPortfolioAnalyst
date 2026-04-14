@@ -442,6 +442,10 @@ body {
   pointer-events: none;
   z-index: 0;
 }
+.app-header h1 span.emoji {
+  -webkit-text-fill-color: initial;
+  background: none;
+}
 .app-header h1 {
   font-size: 2.5rem;
   font-weight: 800;
@@ -620,7 +624,7 @@ input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button { -webkit-appearance: none; }
 select { cursor: pointer; }
 
-.input-narrow { max-width: 110px; }
+.input-narrow { max-width: 140px; min-width: 80px; }
 .input-ticker { max-width: 130px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;}
 
 /* ---- Name cell ---- */
@@ -831,7 +835,7 @@ select { cursor: pointer; }
 <div class="app-container">
   <!-- Header -->
   <header class="app-header">
-    <h1>📊 IBKR 投资组合实时分析</h1>
+    <h1><span class="emoji">📊</span> IBKR 投资组合实时分析</h1>
     <p>Portfolio Real-time Analyzer · 支持 IBKR Flex Query 自动导入</p>
   </header>
 
@@ -1221,7 +1225,7 @@ function addRow() {
     <td class="pct-cell" id="pct-\${id}">0.00%</td>
     <td class="pct-cell" id="chg-\${id}" style="white-space:nowrap;">—</td>
     <td style="white-space:nowrap;">
-      <button class="btn btn-ghost btn-sm" onclick="fetchPrice(\${id})" title="获取价格" id="btn-fetch-\${id}">📡</button>
+      <button class="btn btn-ghost btn-sm" onclick="fetchPrice(\${id})" title="获取价格" id="btn-fetch-\${id}">🔄</button>
       <button class="btn btn-danger btn-sm btn-icon" onclick="removeRow(\${id})" title="删除" id="btn-del-\${id}">✕</button>
     </td>
   \`;
