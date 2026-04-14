@@ -140,6 +140,10 @@ async function handleIBKRImport(request) {
 // 解析 Flex Query XML 中的 OpenPosition 节点
 function parseFlexPositions(xml) {
   const positions = [];
+  const safeNumber = (value, fallback = 0) => {
+    const n = parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
   // 匹配所有 OpenPosition 自闭合标签或开闭标签
   const regex = /<OpenPosition\s+([^>]+)\/?>|<OpenPosition\s+([^>]+)>[\s\S]*?<\/OpenPosition>/g;
   let match;
@@ -162,27 +166,43 @@ function parseFlexPositions(xml) {
 
     const assetCategory = (pos.assetCategory || '').toUpperCase();
     const isOption = assetCategory === 'OPT';
+    const isFuture = assetCategory === 'FUT';
 
     // 期权使用底层股票代码，价格设为 0（稍后通过 Yahoo Finance 获取正股价格）
     // 这样 等效市值 = 数量 × 正股价格 × Delta × 100 才有意义
     const ticker = isOption
       ? (pos.underlyingSymbol || pos.symbol || '')
       : (pos.symbol || '');
-
-    const safeNumber = (value, fallback = 0) => {
-      const n = parseFloat(value);
-      return Number.isFinite(n) ? n : fallback;
-    };
+    const multiplier = isOption
+      ? 100
+      : safeNumber(
+          pos.multiplier ||
+          pos.contractMultiplier ||
+          pos.priceMultiplier ||
+          pos.contractFactor ||
+          '1',
+          1
+        );
+    const importedDailyChange = safeNumber(
+      pos.mtmPnl ||
+      pos.mtmPNL ||
+      pos.dailyPnL ||
+      pos.dailyPNL ||
+      pos.dailyProfitAndLoss,
+      NaN
+    );
 
     positions.push({
       ticker,
       name: pos.description || pos.symbol || '',
-      type: isOption ? 'option' : 'stock',
+      type: isOption ? 'option' : (isFuture ? 'future' : 'stock'),
       qty: quantity,
       // 期权价格 = 0，需通过一键更新获取底层正股价格
       price: isOption ? 0 : safeNumber(pos.markPrice || pos.costBasisPrice || '0'),
       delta: isOption ? safeNumber(pos.delta, 0.8) : 1.0,
-      previousClose: isOption ? 0 : safeNumber(pos.closePrice || pos.priorClose || '0'),
+      previousClose: isOption ? 0 : safeNumber(pos.closePrice || pos.priorClose || pos.close || pos.settlePrice || pos.priorSettlePrice || '0'),
+      multiplier,
+      importedDailyChange: Number.isFinite(importedDailyChange) ? importedDailyChange : null,
       currency: pos.currency || 'USD',
       isShort: quantity < 0,
     });
@@ -729,7 +749,8 @@ function save() {
   const data = assets.map(a => ({
     ticker: a.ticker, name: a.name, type: a.type,
     qty: a.qty, price: a.price, delta: a.delta,
-    previousClose: a.previousClose,
+    previousClose: a.previousClose, multiplier: a.multiplier,
+    importedDailyChange: a.importedDailyChange,
   }));
   localStorage.setItem('ibkr_portfolio_v1', JSON.stringify(data));
 }
@@ -749,6 +770,8 @@ function load() {
       a.price = d.price || 0;
       a.delta = d.delta ?? (d.type === 'option' ? 0.8 : 1.0);
       a.previousClose = d.previousClose || 0;
+      a.multiplier = d.multiplier || (d.type === 'option' ? 100 : 1);
+      a.importedDailyChange = Number.isFinite(d.importedDailyChange) ? d.importedDailyChange : null;
       syncRowToDOM(a);
     });
     recalc();
@@ -766,7 +789,7 @@ function getSortValue(a, col, total) {
   switch (col) {
     case 'ticker': return (a.ticker || '').trim().toUpperCase();
     case 'name': return (a.name || '').trim().toUpperCase();
-    case 'type': return a.type === 'option' ? 'OPTION' : 'STOCK';
+    case 'type': return (a.type || 'stock').toUpperCase();
     case 'qty': return Number(a.qty) || 0;
     case 'price': return Number(a.price) || 0;
     case 'delta': return Number(a.delta) || 0;
@@ -898,6 +921,8 @@ async function doIBKRImport() {
                   ? userDeltas[p.ticker] 
                   : (p.delta ?? 1.0);
       a.previousClose = p.previousClose || 0;
+      a.multiplier = p.multiplier || (p.type === 'option' ? 100 : 1);
+      a.importedDailyChange = Number.isFinite(p.importedDailyChange) ? p.importedDailyChange : null;
       syncRowToDOM(a);
     });
 
@@ -929,7 +954,10 @@ function showImportStatus(msg, type) {
 // ============ Row Management ============
 function addRow() {
   const id = ++rowId;
-  const asset = { id, ticker: '', name: '', type: 'stock', qty: 0, price: 0, delta: 1.0, previousClose: 0 };
+  const asset = {
+    id, ticker: '', name: '', type: 'stock', qty: 0, price: 0, delta: 1.0,
+    previousClose: 0, multiplier: 1, importedDailyChange: null
+  };
   assets.push(asset);
 
   const tbody = document.getElementById('asset-body');
@@ -943,6 +971,7 @@ function addRow() {
       <select id="type-\${id}" onchange="upd(\${id},'type',this.value); toggleDelta(\${id})">
         <option value="stock">正股</option>
         <option value="option">期权LEAPS</option>
+        <option value="future">期货</option>
       </select>
     </td>
     <td><input type="number" class="input-narrow" id="qty-\${id}" value="0" min="0" onchange="upd(\${id},'qty',+this.value)"></td>
@@ -994,10 +1023,12 @@ function toggleDelta(id) {
   if (a.type === 'option') {
     el.disabled = false;
     a.delta = 0.8;
+    a.multiplier = 100;
     el.value = '0.8';
   } else {
     el.disabled = true;
     a.delta = 1.0;
+    a.multiplier = a.type === 'future' ? (a.multiplier || 1) : 1;
     el.value = '1.0';
   }
   recalc();
@@ -1023,13 +1054,14 @@ function syncRowToDOM(a) {
 
 // ============ Calculations ============
 function calcMktVal(a) {
-  const multiplier = a.type === 'option' ? 100 : 1;
+  const multiplier = a.type === 'option' ? 100 : (Number(a.multiplier) || 1);
   return a.qty * a.price * a.delta * multiplier;
 }
 
 function calcDailyChange(a) {
+  if (Number.isFinite(a.importedDailyChange)) return a.importedDailyChange;
   if (!a.previousClose || a.previousClose === 0) return 0;
-  const multiplier = a.type === 'option' ? 100 : 1;
+  const multiplier = a.type === 'option' ? 100 : (Number(a.multiplier) || 1);
   return (a.price - a.previousClose) * a.delta * a.qty * multiplier;
 }
 
@@ -1049,7 +1081,7 @@ function recalc() {
     if (el_mv) el_mv.textContent = fmt(mv);
     if (el_pct) el_pct.textContent = total > 0 ? pct(mv / total) : '0.00%';
     if (el_chg) {
-      if (a.previousClose && a.previousClose > 0 && a.qty !== 0) {
+      if ((Number.isFinite(a.importedDailyChange) || (a.previousClose && a.previousClose > 0)) && a.qty !== 0) {
         el_chg.textContent = fmtChange(dc);
         el_chg.className = 'pct-cell ' + (dc >= 0 ? 'change-pos' : 'change-neg');
       } else {
@@ -1063,7 +1095,7 @@ function recalc() {
   document.getElementById('total-count').textContent = assets.length;
 
   const elDC = document.getElementById('total-daily-change');
-  const hasPrevClose = assets.some(a => a.previousClose > 0 && a.qty !== 0);
+  const hasPrevClose = assets.some(a => (Number.isFinite(a.importedDailyChange) || a.previousClose > 0) && a.qty !== 0);
   if (hasPrevClose) {
     elDC.textContent = fmtChange(totalDailyChange);
     elDC.className = 'stat-value ' + (totalDailyChange >= 0 ? 'change-pos' : 'change-neg');
@@ -1095,6 +1127,7 @@ async function fetchPrice(id) {
     const nextPreviousClose = Number(data.previousClose);
     a.price = Number.isFinite(nextPrice) ? nextPrice : 0;
     a.previousClose = Number.isFinite(nextPreviousClose) ? nextPreviousClose : 0;
+    a.importedDailyChange = null;
     if (data.shortName) {
       a.name = data.shortName;
       const nameEl = document.getElementById('name-' + id);
@@ -1228,7 +1261,8 @@ function renderChart() {
       if (d.data.portions && d.data.portions.length > 1) {
         breakdown = '<div style="margin-top:4px; font-size:0.7em; opacity:0.8; padding-top:4px; border-top:1px solid rgba(255,255,255,0.1)">';
         d.data.portions.forEach(p => {
-           breakdown += '<div>' + (p.type === 'option' ? '期权' : '正股') + ': ' + fmt(p.mv) + '</div>';
+           const label = p.type === 'option' ? '期权' : (p.type === 'future' ? '期货' : '正股');
+           breakdown += '<div>' + label + ': ' + fmt(p.mv) + '</div>';
         });
         breakdown += '</div>';
       }
