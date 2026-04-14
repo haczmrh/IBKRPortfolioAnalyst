@@ -196,6 +196,20 @@ function parseFlexReportSummary(xml) {
     }
   });
 
+  let fallbackChange = null;
+  const plRegex = /<(?:MTMPerformanceSummaryUnderlying|ChangeInNAVUnderlying)\s+([^>]+)\/?>/g;
+  let plMatch;
+  while ((plMatch = plRegex.exec(xml)) !== null) {
+    const attrs = parseXmlAttrs(plMatch[1] || '');
+    if (attrs.description === 'Total P/L') {
+      const total = parseFloat(attrs.total || attrs.mtm);
+      if (Number.isFinite(total)) {
+        fallbackChange = total;
+        break;
+      }
+    }
+  }
+
   if (candidates.length === 0) {
     // 降级方案：如果报告没有专门配置总结区域（如 EquitySummaryInBase），
     // 我们可以直接累加所有 MTMPerformanceSummaryUnderlying 里面的前日数据
@@ -222,12 +236,12 @@ function parseFlexReportSummary(xml) {
     if (foundMtm) {
       return { 
         previousCloseNavUsd: fallbackNav, 
-        previousDayChangeUsd: null, 
+        previousDayChangeUsd: fallbackChange, 
         sourceTagMetric: 'Calculated_MTM_Prev_Close', 
         reportDate: null 
       };
     }
-    return { previousCloseNavUsd: null, previousDayChangeUsd: null };
+    return { previousCloseNavUsd: null, previousDayChangeUsd: fallbackChange };
   }
 
   candidates.sort((a, b) => {
@@ -236,11 +250,21 @@ function parseFlexReportSummary(xml) {
     return b.score - a.score;
   });
 
+  let bestChange = null;
+  for (const c of candidates) {
+    if (Number.isFinite(c.mtm)) { 
+      bestChange = c.mtm; 
+      break; 
+    }
+    if (Number.isFinite(c.startingValue) && Number.isFinite(c.value)) { 
+      bestChange = c.value - c.startingValue; 
+      break; 
+    }
+  }
+
   return {
     previousCloseNavUsd: candidates[0].value,
-    previousDayChangeUsd: Number.isFinite(candidates[0].mtm) 
-      ? candidates[0].mtm 
-      : (Number.isFinite(candidates[0].startingValue) ? candidates[0].value - candidates[0].startingValue : null),
+    previousDayChangeUsd: Number.isFinite(bestChange) ? bestChange : fallbackChange,
     sourceTagMetric: candidates[0].key,
     reportDate: candidates[0].dateRaw || null,
   };
