@@ -23,11 +23,11 @@
    - **MTM Performance Summary** (盈亏分析指标)
    - **Change in NAV** (净资产变动总结)
 5. **各模块必选字段设置**：
-   - **Open Positions**: `Symbol`, `Underlying Symbol`, `Asset Category`, `Position`, `Mark Price`, `Delta`, `Multiplier`, `Description`, `Currency`
-   - **MTM Performance Summary**: `Symbol`, `Asset Category`, `Prev Close Price`, `Prev Close Quantity`, `Total` (即 P/L), `Multiplier`, `Description`
+   - **Open Positions**: `Symbol`, `Underlying Symbol`, `Asset Category`, `Position`, `Mark Price`, `Delta`, `Multiplier`, `Conid`
+   - **MTM Performance Summary**: `Symbol`, `Total` (P/L), `Prev Close Price`, `Conid`
    - **Change in NAV**: `Starting Value`, `Ending Value`, `MTM`
 6. 输出格式选择 **XML**
-7. 在 **General Configuration** 中，确保 **Include Header** 已选中
+7. 确保 **General Configuration** 中已勾选 **Include Header**
 8. 保存并记下 **Query ID**
 
 ### 2. 获取 Flex Token
