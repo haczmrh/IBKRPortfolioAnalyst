@@ -18,10 +18,17 @@
 1. 登录 [IBKR Client Portal](https://portal.interactivebrokers.com/)
 2. 导航到 **Performance & Reports → Flex Queries**
 3. 点击 **Create** 创建新的 Activity Flex Query
-4. 在 **Sections** 中勾选 **Open Positions**
-5. 确保包含以下字段：`Symbol`, `Asset Category`, `Position`, `Mark Price`, `Position Value`, `Delta`, `Description`
+4. 在 **Sections** 中勾选以下模块：
+   - **Open Positions** (持仓明细)
+   - **MTM Performance Summary** (盈亏分析指标)
+   - **Change in NAV** (净资产变动总结)
+5. **各模块必选字段设置**：
+   - **Open Positions**: `Symbol`, `Underlying Symbol`, `Asset Category`, `Position`, `Mark Price`, `Delta`, `Multiplier`, `Description`, `Currency`
+   - **MTM Performance Summary**: `Symbol`, `Asset Category`, `Prev Close Price`, `Prev Close Quantity`, `Total` (即 P/L), `Multiplier`, `Description`
+   - **Change in NAV**: `Starting Value`, `Ending Value`, `MTM`
 6. 输出格式选择 **XML**
-7. 保存并记下 **Query ID**
+7. 在 **General Configuration** 中，确保 **Include Header** 已选中
+8. 保存并记下 **Query ID**
 
 ### 2. 获取 Flex Token
 1. 在 Flex Queries 页面找到 **Flex Web Service Configuration**
