@@ -127,11 +127,22 @@ async function handleIBKRImport(request) {
     const positions = parseFlexPositions(statementXml);
     const reportSummary = parseFlexReportSummary(statementXml);
 
+    // 提取 XML 调试片段：找出所有包含 NAV/净值相关的标签名（用于诊断）
+    const xmlTagMatches = statementXml.match(/<[A-Z][A-Za-z]+\s/g) || [];
+    const uniqueTags = [...new Set(xmlTagMatches.map(t => t.trim().replace('<', '').replace(/\s$/, '')))];
+    const navRelatedTags = uniqueTags.filter(t =>
+      /nav|equity|netasset|netliq|summary|statement/i.test(t)
+    );
+    // 提取前 3000 字节用于调试
+    const xmlSnippet = statementXml.substring(0, 3000);
+
     return jsonResp({
       positions,
       reportSummary,
       count: positions.length,
       raw_length: statementXml.length,
+      debug_nav_tags: navRelatedTags,
+      debug_xml_snippet: xmlSnippet,
     });
 
   } catch (err) {
@@ -164,7 +175,7 @@ function parseFlexReportSummary(xml) {
   ];
 
   tagPatterns.forEach(({ tag, score }) => {
-    const regex = new RegExp(`<${tag}\\s+([^>]+?)(?:\\/?>|>[\\s\\S]*?<\\/${tag}>)`, 'gi');
+    const regex = new RegExp(`<${tag}\\s+([^>]+)(?:\\/?>|>[\\s\\S]*?<\\/${tag}>)`, 'gi');
     let match;
     while ((match = regex.exec(xml)) !== null) {
       const attrs = parseXmlAttrs(match[1] || '');
@@ -176,14 +187,48 @@ function parseFlexReportSummary(xml) {
       for (const key of numericKeys) {
         const value = safeNumber(attrs[key], NaN);
         if (Number.isFinite(value)) {
-          candidates.push({ value, dateRaw, score, key });
+          const startingValue = safeNumber(attrs.startingValue, NaN);
+          const mtm = safeNumber(attrs.mtm, NaN);
+          candidates.push({ value, dateRaw, score, key, startingValue, mtm });
           break;
         }
       }
     }
   });
 
-  if (candidates.length === 0) return { previousCloseNavUsd: null };
+  if (candidates.length === 0) {
+    // 降级方案：如果报告没有专门配置总结区域（如 EquitySummaryInBase），
+    // 我们可以直接累加所有 MTMPerformanceSummaryUnderlying 里面的前日数据
+    let fallbackNav = 0;
+    let foundMtm = false;
+    const mtmRegex = /<(?:MTMPerformanceSummaryUnderlying|ChangeInNAVUnderlying)\s+([^>]+)\/?>/g;
+    let mtmMatch;
+    
+    while ((mtmMatch = mtmRegex.exec(xml)) !== null) {
+      const attrs = parseXmlAttrs(mtmMatch[1] || '');
+      // 跳过纯描述性的汇总节点 (例如 description="Total P/L" 但不含价格的)
+      if (attrs.description === 'Total P/L' && !attrs.prevClosePrice) continue;
+      
+      const pQty = parseFloat(attrs.prevCloseQuantity || '0');
+      const pPrice = parseFloat(attrs.prevClosePrice || '0');
+      const mult = parseFloat(attrs.multiplier || '1') || 1;
+      
+      if (!isNaN(pQty) && !isNaN(pPrice)) {
+         foundMtm = true;
+         fallbackNav += (pQty * pPrice * mult);
+      }
+    }
+    
+    if (foundMtm) {
+      return { 
+        previousCloseNavUsd: fallbackNav, 
+        previousDayChangeUsd: null, 
+        sourceTagMetric: 'Calculated_MTM_Prev_Close', 
+        reportDate: null 
+      };
+    }
+    return { previousCloseNavUsd: null, previousDayChangeUsd: null };
+  }
 
   candidates.sort((a, b) => {
     const dateCmp = String(b.dateRaw).localeCompare(String(a.dateRaw));
@@ -193,6 +238,9 @@ function parseFlexReportSummary(xml) {
 
   return {
     previousCloseNavUsd: candidates[0].value,
+    previousDayChangeUsd: Number.isFinite(candidates[0].mtm) 
+      ? candidates[0].mtm 
+      : (Number.isFinite(candidates[0].startingValue) ? candidates[0].value - candidates[0].startingValue : null),
     sourceTagMetric: candidates[0].key,
     reportDate: candidates[0].dateRaw || null,
   };
@@ -206,6 +254,23 @@ function parseFlexPositions(xml) {
     if (s.startsWith('MNQ')) return 2;
     return 1;
   };
+
+  // 解析 MTMPerformanceSummary 获取准确的 previousClosePrice 和 dailyPnl
+  const mtmMap = new Map();
+  const mtmRegex = /<(?:MTMPerformanceSummaryUnderlying|ChangeInNAVUnderlying)\s+([^>]+)\/?>/g;
+  let mtmMatch;
+  while ((mtmMatch = mtmRegex.exec(xml)) !== null) {
+    const attrs = mtmMatch[1] || '';
+    const attrRegex = /(\w+)="([^"]*)"/g;
+    let am;
+    const mtmRow = {};
+    while ((am = attrRegex.exec(attrs)) !== null) {
+      mtmRow[am[1]] = am[2];
+    }
+    const key = mtmRow.conid || mtmRow.symbol;
+    if (key) mtmMap.set(key, mtmRow);
+  }
+
   // 匹配所有 OpenPosition 自闭合标签或开闭标签
   const regex = /<OpenPosition\s+([^>]+)\/?>|<OpenPosition\s+([^>]+)>[\s\S]*?<\/OpenPosition>/g;
   let match;
@@ -252,6 +317,9 @@ function parseFlexPositions(xml) {
           '1',
           1
         ));
+    const key = pos.conid || pos.symbol;
+    const mtm = mtmMap.get(key) || {};
+
     const importedDailyChange = safeNumber(
       pos.mtmPnl ||
       pos.mtmPNL ||
@@ -260,7 +328,9 @@ function parseFlexPositions(xml) {
       pos.dailyPnL ||
       pos.dailyPNL ||
       pos.dailyProfitAndLoss ||
-      pos.pnl,
+      pos.pnl ||
+      mtm.total ||
+      mtm.priorOpenMtm,
       NaN
     );
 
@@ -280,6 +350,7 @@ function parseFlexPositions(xml) {
         pos.settlementPrice ||
         pos.priorSettlePrice ||
         pos.priorSettlementPrice ||
+        mtm.prevClosePrice ||
         '0'
       ),
       multiplier,
@@ -755,12 +826,12 @@ select { cursor: pointer; }
         <div class="stat-value" id="total-daily-change">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">上一收盘日净资产 (USD)</div>
-        <div class="stat-value" id="prev-close-nav-usd" style="font-size:1.05rem;">—</div>
+        <div class="stat-label">上一交易日变化量</div>
+        <div class="stat-value" id="prev-close-change" style="font-size:1.05rem;">—</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">上一收盘日净资产 (CNY)</div>
-        <div class="stat-value" id="prev-close-nav-cny" style="font-size:1.05rem;">—</div>
+        <div class="stat-label">上一交易日净资产</div>
+        <div class="stat-value" id="prev-close-nav" style="font-size:1.05rem;">—</div>
       </div>
     </div>
   </section>
@@ -809,6 +880,7 @@ let sortCol = '';
 let sortDir = 1; // 1: asc, -1: desc
 let usdCnyPreviousClose = null;
 let reportPreviousCloseNavUsd = null;
+let reportPreviousDayChangeUsd = null;
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -841,6 +913,7 @@ function save() {
   localStorage.setItem('ibkr_portfolio_v1', JSON.stringify(data));
   localStorage.setItem('ibkr_portfolio_meta_v1', JSON.stringify({
     reportPreviousCloseNavUsd,
+    reportPreviousDayChangeUsd,
   }));
 }
 
@@ -854,6 +927,9 @@ function load() {
       const meta = JSON.parse(rawMeta);
       reportPreviousCloseNavUsd = Number.isFinite(meta.reportPreviousCloseNavUsd)
         ? meta.reportPreviousCloseNavUsd
+        : null;
+      reportPreviousDayChangeUsd = Number.isFinite(meta.reportPreviousDayChangeUsd)
+        ? meta.reportPreviousDayChangeUsd
         : null;
     }
     data.forEach(d => {
@@ -1025,6 +1101,17 @@ async function doIBKRImport() {
     reportPreviousCloseNavUsd = Number.isFinite(data?.reportSummary?.previousCloseNavUsd)
       ? data.reportSummary.previousCloseNavUsd
       : null;
+    reportPreviousDayChangeUsd = Number.isFinite(data?.reportSummary?.previousDayChangeUsd)
+      ? data.reportSummary.previousDayChangeUsd
+      : null;
+
+    // 调试：打印报告摘要，帮助排查上一收盘日净资产 = — 的问题
+    console.log('[IBKR Import] reportSummary:', data.reportSummary);
+    console.log('[IBKR Import] reportPreviousCloseNavUsd:', reportPreviousCloseNavUsd);
+    console.log('[IBKR Import] debug_nav_tags:', data.debug_nav_tags);
+    if (reportPreviousCloseNavUsd === null) {
+      console.warn('[IBKR Import] ⚠️ 无法从 Flex XML 解析到净资产值，XML 片段:', data.debug_xml_snippet);
+    }
 
     recalc();
     save();
@@ -1218,19 +1305,29 @@ function recalc() {
     elDC.className = 'stat-value';
   }
 
-  const elPrevUsd = document.getElementById('prev-close-nav-usd');
-  const elPrevCny = document.getElementById('prev-close-nav-cny');
+  const elPrevChange = document.getElementById('prev-close-change');
+  const elPrevNav = document.getElementById('prev-close-nav');
+
+  if (Number.isFinite(reportPreviousDayChangeUsd)) {
+    const usdStr = fmtChange(reportPreviousDayChangeUsd);
+    const cnyStr = Number.isFinite(usdCnyPreviousClose) ? fmtCny(reportPreviousDayChangeUsd * usdCnyPreviousClose) : '—';
+    elPrevChange.textContent = usdStr + ' (' + cnyStr + ')';
+    elPrevChange.className = 'stat-value ' + (reportPreviousDayChangeUsd >= 0 ? 'change-pos' : 'change-neg');
+  } else {
+    elPrevChange.textContent = '—';
+    elPrevChange.className = 'stat-value';
+  }
+
   const effectivePrevCloseNavUsd = Number.isFinite(reportPreviousCloseNavUsd)
     ? reportPreviousCloseNavUsd
     : ((hasPrevCloseNav && assets.some(a => a.qty !== 0)) ? prevCloseNav : null);
+    
   if (Number.isFinite(effectivePrevCloseNavUsd)) {
-    elPrevUsd.textContent = fmt(effectivePrevCloseNavUsd);
-    elPrevCny.textContent = Number.isFinite(usdCnyPreviousClose)
-      ? fmtCny(effectivePrevCloseNavUsd * usdCnyPreviousClose)
-      : '—';
+    const usdStr = fmt(effectivePrevCloseNavUsd);
+    const cnyStr = Number.isFinite(usdCnyPreviousClose) ? fmtCny(effectivePrevCloseNavUsd * usdCnyPreviousClose) : '—';
+    elPrevNav.textContent = usdStr + ' (' + cnyStr + ')';
   } else {
-    elPrevUsd.textContent = '—';
-    elPrevCny.textContent = '—';
+    elPrevNav.textContent = '—';
   }
 
   applySort();
