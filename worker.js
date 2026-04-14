@@ -630,14 +630,14 @@ select { cursor: pointer; }
         <thead>
           <tr>
             <th onclick="toggleSort('ticker')" style="cursor:pointer; user-select:none;">Ticker <span id="sort-ind-ticker"></span></th>
-            <th>名称</th>
-            <th>类型</th>
-            <th>数量</th>
-            <th>价格 ($)</th>
-            <th>Delta</th>
-            <th>等效市值</th>
-            <th>占比</th>
-            <th>今日变动</th>
+            <th onclick="toggleSort('name')" style="cursor:pointer; user-select:none;">名称 <span id="sort-ind-name"></span></th>
+            <th onclick="toggleSort('type')" style="cursor:pointer; user-select:none;">类型 <span id="sort-ind-type"></span></th>
+            <th onclick="toggleSort('qty')" style="cursor:pointer; user-select:none;">数量 <span id="sort-ind-qty"></span></th>
+            <th onclick="toggleSort('price')" style="cursor:pointer; user-select:none;">价格 ($) <span id="sort-ind-price"></span></th>
+            <th onclick="toggleSort('delta')" style="cursor:pointer; user-select:none;">Delta <span id="sort-ind-delta"></span></th>
+            <th onclick="toggleSort('mktval')" style="cursor:pointer; user-select:none;">等效市值 <span id="sort-ind-mktval"></span></th>
+            <th onclick="toggleSort('pct')" style="cursor:pointer; user-select:none;">占比 <span id="sort-ind-pct"></span></th>
+            <th onclick="toggleSort('dailyChange')" style="cursor:pointer; user-select:none;">今日变动 <span id="sort-ind-dailyChange"></span></th>
             <th>操作</th>
           </tr>
         </thead>
@@ -704,7 +704,8 @@ select { cursor: pointer; }
 // ============ State ============
 let assets = [];
 let rowId = 0;
-let sortDir = 0; // 0: none, 1: asc, -1: desc
+let sortCol = '';
+let sortDir = 1; // 1: asc, -1: desc
 
 const COLORS = [
   '#6366f1','#10b981','#f59e0b','#f43f5e','#8b5cf6',
@@ -755,27 +756,58 @@ function load() {
 }
 
 // ============ Sort & Reorder ============
-function toggleSort(col) {
-  if (col === 'ticker') {
-    sortDir = sortDir === 1 ? -1 : 1;
-    document.getElementById('sort-ind-ticker').textContent = sortDir === 1 ? '▲' : '▼';
-    
-    // Sort the assets array
-    assets.sort((a, b) => {
-      const ta = a.ticker.trim().toUpperCase();
-      const tb = b.ticker.trim().toUpperCase();
-      if (ta < tb) return -1 * sortDir;
-      if (ta > tb) return 1 * sortDir;
-      return 0;
-    });
-    
-    // Reorder DOM rows
-    const tbody = document.getElementById('asset-body');
-    assets.forEach(a => {
-      const tr = document.getElementById('row-' + a.id);
-      if (tr) tbody.appendChild(tr); // Moving existing element to the end
-    });
+function setSortIndicator(col) {
+  document.querySelectorAll('[id^="sort-ind-"]').forEach(el => { el.textContent = ''; });
+  const indicator = document.getElementById('sort-ind-' + col);
+  if (indicator) indicator.textContent = sortDir === 1 ? '▲' : '▼';
+}
+
+function getSortValue(a, col, total) {
+  switch (col) {
+    case 'ticker': return (a.ticker || '').trim().toUpperCase();
+    case 'name': return (a.name || '').trim().toUpperCase();
+    case 'type': return a.type === 'option' ? 'OPTION' : 'STOCK';
+    case 'qty': return Number(a.qty) || 0;
+    case 'price': return Number(a.price) || 0;
+    case 'delta': return Number(a.delta) || 0;
+    case 'mktval': return calcMktVal(a);
+    case 'pct': return total !== 0 ? calcMktVal(a) / total : 0;
+    case 'dailyChange': return calcDailyChange(a);
+    default: return a.id;
   }
+}
+
+function applySort() {
+  if (!sortCol) return;
+
+  const total = assets.reduce((sum, a) => sum + calcMktVal(a), 0);
+  assets.sort((a, b) => {
+    const va = getSortValue(a, sortCol, total);
+    const vb = getSortValue(b, sortCol, total);
+
+    if (typeof va === 'string' || typeof vb === 'string') {
+      const cmp = String(va).localeCompare(String(vb), 'en', { sensitivity: 'base' });
+      if (cmp !== 0) return cmp * sortDir;
+    } else {
+      const diff = (va - vb) * sortDir;
+      if (diff !== 0) return diff;
+    }
+
+    return a.id - b.id;
+  });
+
+  const tbody = document.getElementById('asset-body');
+  assets.forEach(a => {
+    const tr = document.getElementById('row-' + a.id);
+    if (tr) tbody.appendChild(tr);
+  });
+}
+
+function toggleSort(col) {
+  sortDir = sortCol === col ? -sortDir : 1;
+  sortCol = col;
+  setSortIndicator(col);
+  applySort();
 }
 
 // ============ IBKR Import Modal ============
@@ -1040,6 +1072,7 @@ function recalc() {
     elDC.className = 'stat-value';
   }
 
+  applySort();
   renderChart();
 }
 
