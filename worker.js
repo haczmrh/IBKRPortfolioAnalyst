@@ -1441,7 +1441,7 @@ async function fetchPrice(id) {
     } catch (apiErr) {
       const isMNQ = a.ticker.trim().toUpperCase().startsWith('MNQ');
       if (isMNQ) {
-        console.warn(`MNQ fetch failed, falling back to NDX...`);
+        console.warn('MNQ fetch failed, falling back to NDX...');
         try {
           const ndxResp = await fetch('/api/quote?ticker=' + encodeURIComponent('^NDX'));
           const ndxData = await ndxResp.json();
@@ -1458,7 +1458,7 @@ async function fetchPrice(id) {
             throw new Error('Invalid NDX data');
           }
         } catch (ndxErr) {
-          console.warn(`NDX fallback failed, treating MNQ change as 0.`);
+          console.warn('NDX fallback failed, treating MNQ change as 0.');
           if (a.previousClose > 0) {
             nextPrice = a.previousClose;
             nextPreviousClose = a.previousClose;
