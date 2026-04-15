@@ -1414,28 +1414,75 @@ async function fetchPrice(id) {
   badge.textContent = '⏳';
 
   try {
-    const resp = await fetch('/api/quote?ticker=' + encodeURIComponent(a.ticker.trim()));
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error);
+    let nextPrice = 0;
+    let nextPreviousClose = 0;
+    let fetchSuccess = false;
 
-    const nextPrice = Number(data.price);
-    const nextPreviousClose = Number(data.previousClose);
-    a.price = Number.isFinite(nextPrice) ? nextPrice : 0;
-    a.previousClose = Number.isFinite(nextPreviousClose) ? nextPreviousClose : 0;
-    a.importedDailyChange = null;
-    if (data.shortName) {
-      a.name = data.shortName;
-      const nameEl = document.getElementById('name-' + id);
-      if (nameEl) {
-        nameEl.textContent = data.shortName;
-        nameEl.title = data.shortName;
+    try {
+      const resp = await fetch('/api/quote?ticker=' + encodeURIComponent(a.ticker.trim()));
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+
+      const p = Number(data.price);
+      if (!p || isNaN(p) || p <= 0) throw new Error('Invalid price data from Yahoo');
+
+      nextPrice = p;
+      nextPreviousClose = Number(data.previousClose);
+      fetchSuccess = true;
+
+      if (data.shortName) {
+        a.name = data.shortName;
+        const nameEl = document.getElementById('name-' + id);
+        if (nameEl) {
+          nameEl.textContent = data.shortName;
+          nameEl.title = data.shortName;
+        }
+      }
+    } catch (apiErr) {
+      const isMNQ = a.ticker.trim().toUpperCase().startsWith('MNQ');
+      if (isMNQ) {
+        console.warn(`MNQ fetch failed, falling back to NDX...`);
+        try {
+          const ndxResp = await fetch('/api/quote?ticker=' + encodeURIComponent('^NDX'));
+          const ndxData = await ndxResp.json();
+          if (ndxData.error) throw new Error(ndxData.error);
+
+          const ndxP = Number(ndxData.price);
+          const ndxC = Number(ndxData.previousClose);
+          if (ndxP > 0 && ndxC > 0 && a.previousClose > 0) {
+            const pctChange = (ndxP - ndxC) / ndxC;
+            nextPrice = Number((a.previousClose * (1 + pctChange)).toFixed(4));
+            nextPreviousClose = a.previousClose;
+            fetchSuccess = true;
+          } else {
+            throw new Error('Invalid NDX data');
+          }
+        } catch (ndxErr) {
+          console.warn(`NDX fallback failed, treating MNQ change as 0.`);
+          if (a.previousClose > 0) {
+            nextPrice = a.previousClose;
+            nextPreviousClose = a.previousClose;
+            fetchSuccess = true;
+          } else {
+            throw new Error('No previous close available to treat as 0 change.');
+          }
+        }
+      } else {
+        throw apiErr;
       }
     }
-    document.getElementById('price-' + id).value = a.price;
-    badge.className = 'price-badge success';
-    badge.textContent = '✓';
-    recalc();
-    save();
+
+    if (fetchSuccess) {
+      a.price = nextPrice;
+      a.previousClose = Number.isFinite(nextPreviousClose) ? nextPreviousClose : 0;
+      a.importedDailyChange = null;
+      const priceInput = document.getElementById('price-' + id);
+      if (priceInput) priceInput.value = a.price;
+      badge.className = 'price-badge success';
+      badge.textContent = '✓';
+      recalc();
+      save();
+    }
   } catch (e) {
     badge.className = 'price-badge error';
     badge.textContent = '✕';
