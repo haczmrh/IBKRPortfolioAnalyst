@@ -335,7 +335,7 @@ function parseFlexPositions(xml) {
       qty: quantity,
       // 期权价格 = 0，需通过一键更新获取底层正股价格
       price: isOption ? 0 : safeNumber(pos.markPrice || pos.costBasisPrice || '0'),
-      delta: isOption ? safeNumber(pos.delta, quantity < 0 ? 0 : 0.8) : 1.0,
+      delta: isOption ? safeNumber(pos.delta, 0.8) : 1.0,
       previousClose: isOption ? 0 : safeNumber(
         pos.closePrice ||
         pos.priorClose ||
@@ -995,7 +995,7 @@ function load() {
       a.type = d.type || 'stock';
       a.qty = d.qty || 0;
       a.price = d.price || 0;
-      a.delta = d.delta ?? (d.type === 'option' ? (a.qty < 0 ? 0 : 0.8) : 1.0);
+      a.delta = d.delta ?? (d.type === 'option' ? 0.8 : 1.0);
       a.previousClose = d.previousClose || 0;
       a.multiplier = d.multiplier || (d.type === 'option' ? 100 : 1);
       a.importedDailyChange = Number.isFinite(d.importedDailyChange) ? d.importedDailyChange : null;
@@ -1265,9 +1265,9 @@ function toggleDelta(id) {
   if (!a || !el) return;
   if (a.type === 'option') {
     el.disabled = false;
-    a.delta = a.qty < 0 ? 0 : 0.8;
+    a.delta = 0.8;
     a.multiplier = 100;
-    el.value = String(a.delta);
+    el.value = '0.8';
   } else {
     el.disabled = true;
     a.delta = 1.0;
